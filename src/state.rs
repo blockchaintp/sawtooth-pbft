@@ -19,7 +19,7 @@
 
 use std::fmt;
 use std::time::Duration;
-
+use std::cmp;
 use sawtooth_sdk::consensus::engine::{BlockId, PeerId};
 
 use crate::config::PbftConfig;
@@ -107,6 +107,9 @@ pub struct PbftState {
     /// The maximum number of faulty nodes in the network
     pub f: u64,
 
+    /// The threshold of messages which muched be reached
+    pub threshold: u64,
+
     /// Timer used to make sure the primary publishes blocks in a timely manner. If not, then this
     /// node will initiate a view change.
     pub idle_timeout: Timeout,
@@ -148,6 +151,8 @@ impl PbftState {
             panic!("This network does not contain enough nodes to be fault tolerant");
         }
 
+        let threshold = cmp::max(((config.members.len() as u64) - f) as u64, 2*f+1) as u64;
+
         PbftState {
             id,
             seq_num: head_block_num + 1,
@@ -156,6 +161,7 @@ impl PbftState {
             phase: PbftPhase::PrePreparing,
             mode: PbftMode::Normal,
             f,
+            threshold,
             member_ids: config.members.clone(),
             idle_timeout: Timeout::new(config.idle_timeout),
             commit_timeout: Timeout::new(config.commit_timeout),

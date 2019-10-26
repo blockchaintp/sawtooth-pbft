@@ -274,7 +274,7 @@ impl PbftNode {
                 )
                 // Check if there are at least 2f + 1 Prepares
                 .len() as u64
-                >= 2 * state.f;
+                >= state.threshold - 1;
             if has_matching_pre_prepare && has_required_prepares {
                 state.switch_phase(PbftPhase::Committing)?;
                 self.broadcast_pbft_message(
@@ -333,7 +333,7 @@ impl PbftNode {
                 )
                 // Check if there are at least 2f + 1 Commits
                 .len() as u64
-                > 2 * state.f;
+                > state.threshold - 1;
             if has_matching_pre_prepare && has_required_commits {
                 self.service.commit_block(block_id.clone()).map_err(|err| {
                     PbftError::ServiceError(
@@ -406,7 +406,7 @@ impl PbftNode {
 
         // If there are 2f + 1 ViewChange messages and the view change timeout is not already
         // started, update the timeout and start it
-        if !state.view_change_timeout.is_active() && messages.len() as u64 > state.f * 2 {
+        if !state.view_change_timeout.is_active() && messages.len() as u64 > (state.threshold - 1) {
             state.view_change_timeout = Timeout::new(
                 state
                     .view_change_duration
@@ -425,7 +425,7 @@ impl PbftNode {
             .collect::<Vec<_>>();
 
         if state.is_primary_at_view(msg_view)
-            && messages_from_other_nodes.len() as u64 >= 2 * state.f
+            && messages_from_other_nodes.len() as u64 >= state.threshold - 1
         {
             let mut new_view = PbftNewView::new();
 
@@ -1153,7 +1153,7 @@ impl PbftNode {
             // One and only one block/view should have the required number of messages, since only
             // one block at this sequence number should have been committed and in only one view
             .find_map(|((block_id, view), msgs)| {
-                if msgs.len() as u64 >= 2 * state.f {
+                if msgs.len() as u64 >= state.threshold - 1 {
                     Some((block_id, view, msgs))
                 } else {
                     None
@@ -1336,10 +1336,10 @@ impl PbftNode {
         }
 
         // Check that the NewView contains 2f votes (primary vote is implicit, so total of 2f + 1)
-        if (voter_ids.len() as u64) < 2 * state.f {
+        if (voter_ids.len() as u64) < state.threshold - 1 {
             return Err(PbftError::InvalidMessage(format!(
                 "NewView needs {} votes, but only {} found",
-                2 * state.f,
+                state.threshold - 1,
                 voter_ids.len()
             )));
         }
@@ -1493,10 +1493,10 @@ impl PbftNode {
         }
 
         // Check that the seal contains 2f votes (primary vote is implicit, so total of 2f + 1)
-        if (voter_ids.len() as u64) < 2 * state.f {
+        if (voter_ids.len() as u64) < state.threshold - 1 {
             return Err(PbftError::InvalidMessage(format!(
                 "Consensus seal needs {} votes, but only {} found",
-                2 * state.f,
+                state.threshold - 1,
                 voter_ids.len()
             )));
         }
