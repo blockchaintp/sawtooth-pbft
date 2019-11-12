@@ -125,6 +125,7 @@ impl PbftNode {
             _ => false,
         } && msg_type != PbftMessageType::ViewChange
             && msg_type != PbftMessageType::NewView
+            && msg_type != PbftMessageType::SealRequest
         {
             debug!(
                 "{}: Node is view changing; ignoring {} message",
