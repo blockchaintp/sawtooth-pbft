@@ -74,6 +74,8 @@ impl PbftNode {
             if let Ok(seal) = protobuf::parse_from_bytes::<PbftSeal>(&chain_head.payload) {
                 state.view = seal.get_info().get_view();
                 info!("Updated view to {} on startup", state.view);
+                state.phase = PbftPhase::PrePreparing;
+                state.mode = PbftMode::Normal;
             }
             // If connected to any peers already, send bootstrap commit messages to them
             for peer in connected_peers {
@@ -84,12 +86,6 @@ impl PbftNode {
             }
         }
 
-        // Primary initializes a block
-        if state.is_primary() {
-            n.service.initialize_block(None).unwrap_or_else(|err| {
-                error!("Couldn't initialize block on startup due to error: {}", err)
-            });
-        }
         n
     }
 
@@ -2079,10 +2075,6 @@ mod tests {
         assert!(node1.msg_log.get_block_with_id(&head.block_id).is_some());
         assert_eq!(vec![2], state1.chain_head);
         assert_eq!(1, state1.view);
-        assert!(service1.was_called_with_args(stringify_func_call!(
-            "initialize_block",
-            None as Option<BlockId>
-        )));
 
         // Verify non-primary does not call Service::initialize_block()
         let (_, _, service0) = mock_node(&mock_config(4), vec![0], head.clone());
