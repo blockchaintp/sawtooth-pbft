@@ -122,10 +122,20 @@ impl PbftNode {
             && msg_type != PbftMessageType::NewView
             && msg_type != PbftMessageType::SealRequest
         {
-            debug!(
-                "{}: Node is view changing; ignoring {} message",
-                state, msg_type
-            );
+            // If this is a commit message for the chain head, we shouldn't ignore it, since we may
+            // need it in the log
+            if msg_type == PbftMessageType::Commit && msg.get_block_id() == state.chain_head {
+                debug!(
+                    "{}: Node is view changing but this is a commit of the chain head; accepting {} message",
+                    state, msg_type
+                );
+                self.handle_commit(msg, state)?
+            } else {
+                debug!(
+                    "{}: Node is view changing; ignoring {} message",
+                    state, msg_type
+                );
+            }
             return Ok(());
         }
 
@@ -297,6 +307,14 @@ impl PbftNode {
         let info = msg.info().clone();
         let block_id = msg.get_block_id();
 
+        // Bootstrap commits for the chain head can come in on a prior view
+        // from where we are right now or the same view.
+        // We should add those to the log, if this is a commit for some other
+        // block though, we ignore it like the rest
+        if msg.get_block_id() == state.chain_head {
+            self.msg_log.add_message(msg);
+            return Ok(());
+        }
         // Check that the message is for the current view
         if msg.info().get_view() != state.view {
             return Err(PbftError::InvalidMessage(format!(
@@ -1099,6 +1117,9 @@ impl PbftNode {
         let bytes = commit.write_to_bytes().map_err(|err| {
             PbftError::SerializationError("Error writing commit to bytes".into(), err)
         })?;
+
+        self.msg_log
+            .add_message(ParsedMessage::from_pbft_message(commit)?);
 
         self.service
             .send_to(
