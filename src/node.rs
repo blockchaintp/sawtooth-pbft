@@ -1538,6 +1538,13 @@ impl PbftNode {
             return Ok(());
         }
 
+        if match state.mode {
+            PbftMode::ViewChanging(_) => true,
+            _ => false,
+        } {
+            return Ok(());
+        }
+
         trace!("{}: Attempting to summarize block", state);
 
         match self.service.summarize_block() {
