@@ -19,7 +19,8 @@
 
 #![allow(unknown_lints)]
 
-use std::collections::{HashMap, HashSet};
+use linked_hash_map::LinkedHashMap;
+use std::collections::HashSet;
 use std::fmt;
 
 use sawtooth_sdk::consensus::engine::{Block, BlockId};
@@ -31,7 +32,7 @@ use crate::protos::pbft_message::PbftMessageInfo;
 /// Struct for storing messages that a PbftNode receives
 pub struct PbftLog {
     /// All blocks received from the validator that have not been validated yet
-    unvalidated_blocks: HashMap<BlockId, Block>,
+    unvalidated_blocks: LinkedHashMap<BlockId, Block>,
 
     /// All blocks received from the validator that have been validated and not yet garbage
     /// collected
@@ -72,7 +73,7 @@ impl PbftLog {
     /// Create a new, empty `PbftLog` with the `max_log_size` specified in the `config`
     pub fn new(config: &PbftConfig) -> Self {
         PbftLog {
-            unvalidated_blocks: HashMap::new(),
+            unvalidated_blocks: LinkedHashMap::new(),
             blocks: HashSet::new(),
             messages: HashSet::new(),
             max_log_size: config.max_log_size,
@@ -90,6 +91,18 @@ impl PbftLog {
         trace!("Adding unvalidated block to log: {:?}", block);
         self.unvalidated_blocks
             .insert(block.block_id.clone(), block);
+    }
+
+    // Get the count of unvalidated blocks
+    pub fn unvalidated_block_count(&mut self) -> usize {
+        self.unvalidated_blocks.len()
+    }
+
+    // Get the count of unvalidated blocks
+    pub fn get_first_unvalidated_block(&mut self) -> Block {
+        let mut iter = self.unvalidated_blocks.entries();
+        let item = iter.next().unwrap();
+        (*item.get()).clone()
     }
 
     /// Move the `Block` corresponding to `block_id` from `unvalidated_blocks` to `blocks`. Return

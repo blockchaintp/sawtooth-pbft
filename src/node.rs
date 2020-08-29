@@ -665,19 +665,21 @@ impl PbftNode {
         // Add the currently unvalidated block to the log
         self.msg_log.add_unvalidated_block(block.clone());
 
-        // Have the validator check the block
-        self.service
-            .check_blocks(vec![block.block_id.clone()])
-            .map_err(|err| {
-                PbftError::ServiceError(
-                    format!(
-                        "Failed to check block {:?} / {:?}",
-                        block.block_num,
-                        hex::encode(&block.block_id),
-                    ),
-                    err,
-                )
-            })?;
+        if self.msg_log.unvalidated_block_count() <= 1 {
+            // Have the validator check the block
+            self.service
+                .check_blocks(vec![block.block_id.clone()])
+                .map_err(|err| {
+                    PbftError::ServiceError(
+                        format!(
+                            "Failed to check block {:?} / {:?}",
+                            block.block_num,
+                            hex::encode(&block.block_id),
+                        ),
+                        err,
+                    )
+                })?;
+        }
 
         Ok(())
     }
@@ -704,6 +706,22 @@ impl PbftNode {
                 ))
             })?;
 
+        if self.msg_log.unvalidated_block_count() > 0 {
+            // Have the validator check the block
+            let unchecked_block = self.msg_log.get_first_unvalidated_block();
+            self.service
+                .check_blocks(vec![unchecked_block.block_id.clone()])
+                .map_err(|err| {
+                    PbftError::ServiceError(
+                        format!(
+                            "Failed to check block {:?} / {:?}",
+                            unchecked_block.block_num,
+                            hex::encode(&unchecked_block.block_id),
+                        ),
+                        err,
+                    )
+                })?;
+        }
         self.try_handling_block(block, state)
     }
 
@@ -2196,7 +2214,7 @@ mod tests {
 
         // Verify chain head is added to the log, chain head and view are set, and primary calls
         // Service::initialize_block()
-        let (node1, state1, service1) = mock_node(&mock_config(4), vec![1], head.clone());
+        let (node1, state1, _service1) = mock_node(&mock_config(4), vec![1], head.clone());
         assert!(node1.msg_log.get_block_with_id(&head.block_id).is_some());
         assert_eq!(vec![2], state1.chain_head);
         assert_eq!(1, state1.view);
@@ -3022,6 +3040,7 @@ mod tests {
         assert!(service.was_called_with_args(stringify_func_call!("fail_block", vec![2])));
         assert!(node.msg_log.block_validated(vec![2]).is_none());
         assert!(node.msg_log.get_block_with_id(&[2]).is_none());
+        assert!(node.msg_log.unvalidated_block_count() == 0);
 
         // Verify blocks are rejected immediately when node doesn't have previous block
         let mut no_previous_block = mock_block(5);
@@ -3040,6 +3059,7 @@ mod tests {
         assert!(service.was_called_with_args(stringify_func_call!("fail_block", vec![5])));
         assert!(node.msg_log.block_validated(vec![5]).is_none());
         assert!(node.msg_log.get_block_with_id(&[5]).is_none());
+        assert!(node.msg_log.unvalidated_block_count() == 0);
 
         // Verify blocks are rejected immediately when the previous block doesn't have the previous
         // block num
@@ -3061,6 +3081,7 @@ mod tests {
         assert!(!service.was_called_with_args_once(stringify_func_call!("fail_block", vec![5])));
         assert!(node.msg_log.block_validated(vec![5]).is_none());
         assert!(node.msg_log.get_block_with_id(&[5]).is_none());
+        assert!(node.msg_log.unvalidated_block_count() == 0);
 
         // Verify blocks aren't handled before the grandparent block is committed (this block is
         // actually invalid because of its seal, but it won't be failed because it can't properly
@@ -3088,6 +3109,7 @@ mod tests {
         assert!(!service.was_called_with_args(stringify_func_call!("fail_block", vec![6])));
         assert!(node.msg_log.block_validated(vec![6]).is_none());
         assert!(node.msg_log.get_block_with_id(&[6]).is_some());
+        assert!(node.msg_log.unvalidated_block_count() == 0);
 
         // Verify blocks with invalid seals (e.g. not enough votes) are rejected after the block is
         // validated by the validator
@@ -3113,6 +3135,7 @@ mod tests {
         assert!(service.was_called_with_args(stringify_func_call!("fail_block", vec![4])));
         assert!(node.msg_log.block_validated(vec![4]).is_none());
         assert!(node.msg_log.get_block_with_id(&[4]).is_some());
+        assert!(node.msg_log.unvalidated_block_count() == 0);
 
         // Verify valid blocks are accepted and added to the log
         let mut valid_block = mock_block(4);
