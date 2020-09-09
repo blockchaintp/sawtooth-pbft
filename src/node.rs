@@ -665,16 +665,16 @@ impl PbftNode {
         // Add the currently unvalidated block to the log
         self.msg_log.add_unvalidated_block(block.clone());
 
-        if self.msg_log.unvalidated_block_count() <= 1 {
-            // Have the validator check the block
+        if self.msg_log.unvalidated_block_count() > 0 {
+            let unchecked_block = self.msg_log.get_first_unvalidated_block();
             self.service
-                .check_blocks(vec![block.block_id.clone()])
+                .check_blocks(vec![unchecked_block.block_id.clone()])
                 .map_err(|err| {
                     PbftError::ServiceError(
                         format!(
                             "Failed to check block {:?} / {:?}",
-                            block.block_num,
-                            hex::encode(&block.block_id),
+                            unchecked_block.block_num,
+                            hex::encode(&unchecked_block.block_id),
                         ),
                         err,
                     )
