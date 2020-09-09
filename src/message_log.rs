@@ -34,6 +34,9 @@ pub struct PbftLog {
     /// All blocks received from the validator that have not been validated yet
     unvalidated_blocks: LinkedHashMap<BlockId, Block>,
 
+    /// All blocks received from the validator that have not been validated yet
+    validation_requested: LinkedHashMap<BlockId, Block>,
+
     /// All blocks received from the validator that have been validated and not yet garbage
     /// collected
     blocks: HashSet<Block>,
@@ -74,6 +77,7 @@ impl PbftLog {
     pub fn new(config: &PbftConfig) -> Self {
         PbftLog {
             unvalidated_blocks: LinkedHashMap::new(),
+            validation_requested: LinkedHashMap::new(),
             blocks: HashSet::new(),
             messages: HashSet::new(),
             max_log_size: config.max_log_size,
@@ -94,21 +98,35 @@ impl PbftLog {
     }
 
     // Get the count of unvalidated blocks
-    pub fn unvalidated_block_count(&mut self) -> usize {
+    pub fn outstanding_validation_count(&mut self) -> usize {
         self.unvalidated_blocks.len()
     }
 
+    /// Add an already validated `Block` to the log
+    pub fn add_validated_requested(&mut self, block: Block) {
+        trace!("Adding validation request block to log: {:?}", block);
+        self.validation_requested
+            .insert(block.block_id.clone(), block);
+    }
+
     // Get the count of unvalidated blocks
-    pub fn get_first_unvalidated_block(&mut self) -> Block {
-        let mut iter = self.unvalidated_blocks.entries();
-        let item = iter.next().unwrap();
-        (*item.get()).clone()
+    pub fn get_first_unvalidated_block(&mut self) -> Option<Block> {
+        let mut iter = self
+            .unvalidated_blocks
+            .iter()
+            .skip_while(|x| self.validation_requested.contains_key(x.0));
+
+        match iter.next() {
+            None => None,
+            Some(item) => Some(item.1.clone()),
+        }
     }
 
     /// Move the `Block` corresponding to `block_id` from `unvalidated_blocks` to `blocks`. Return
     /// the block itself to be used by the calling code.
     pub fn block_validated(&mut self, block_id: BlockId) -> Option<Block> {
         trace!("Marking block as validated: {:?}", block_id);
+        self.validation_requested.remove(&block_id);
         self.unvalidated_blocks.remove(&block_id).map(|block| {
             self.blocks.insert(block.clone());
             block
@@ -118,6 +136,7 @@ impl PbftLog {
     /// Drop the `Block` corresponding to `block_id` from `unvalidated_blocks`.
     pub fn block_invalidated(&mut self, block_id: BlockId) -> bool {
         trace!("Dropping invalidated block: {:?}", block_id);
+        self.validation_requested.remove(&block_id);
         self.unvalidated_blocks.remove(&block_id).is_some()
     }
 
