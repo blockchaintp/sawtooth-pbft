@@ -844,18 +844,20 @@ impl PbftNode {
         }
 
         // Commit the block, stop the idle timeout, and skip straight to Finishing
-        self.service
-            .commit_block(seal.block_id.clone())
-            .map_err(|err| {
-                PbftError::ServiceError(
-                    format!(
-                        "Failed to commit block with catch-up {:?} / {:?}",
-                        state.seq_num,
-                        hex::encode(&seal.block_id)
-                    ),
-                    err,
-                )
-            })?;
+        if seal.block_id.clone() != state.chain_head {
+            self.service
+                .commit_block(seal.block_id.clone())
+                .map_err(|err| {
+                    PbftError::ServiceError(
+                        format!(
+                            "Failed to commit block with catch-up {:?} / {:?}",
+                            state.seq_num,
+                            hex::encode(&seal.block_id)
+                        ),
+                        err,
+                    )
+                })?;
+        }
         state.idle_timeout.stop();
         state.phase = PbftPhase::Finishing(catchup_again);
 
