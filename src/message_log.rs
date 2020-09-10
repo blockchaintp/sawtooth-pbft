@@ -122,11 +122,14 @@ impl PbftLog {
         }
     }
 
+    pub fn block_committed(&mut self, block_id: BlockId) -> bool {
+        self.validation_requested.remove(&block_id).is_some()
+    }
+
     /// Move the `Block` corresponding to `block_id` from `unvalidated_blocks` to `blocks`. Return
     /// the block itself to be used by the calling code.
     pub fn block_validated(&mut self, block_id: BlockId) -> Option<Block> {
         trace!("Marking block as validated: {:?}", block_id);
-        self.validation_requested.remove(&block_id);
         self.unvalidated_blocks.remove(&block_id).map(|block| {
             self.blocks.insert(block.clone());
             block
