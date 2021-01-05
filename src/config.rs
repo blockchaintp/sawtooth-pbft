@@ -67,6 +67,9 @@ pub struct PbftConfig {
 
     /// Where to store PbftState ("memory" or "disk+/path/to/file")
     pub storage_location: String,
+
+    /// Whether or not to use strict quorum threshold calculation
+    pub strict_quorum: bool,
 }
 
 impl PbftConfig {
@@ -83,6 +86,7 @@ impl PbftConfig {
             forced_view_change_interval: 100,
             max_log_size: 10000,
             storage_location: "memory".into(),
+            strict_quorum: false,
         }
     }
 
@@ -95,6 +99,7 @@ impl PbftConfig {
     /// + `sawtooth.consensus.pbft.commit_timeout` (optional, default 10000 ms)
     /// + `sawtooth.consensus.pbft.view_change_duration` (optional, default 5000 ms)
     /// + `sawtooth.consensus.pbft.forced_view_change_interval` (optional, default 100 blocks)
+    /// + `sawtooth.consensus.pbft.strict_quorum` (optional, default false)
     ///
     /// # Panics
     /// + If block publishing delay is greater than the idle timeout
@@ -114,6 +119,7 @@ impl PbftConfig {
                         String::from("sawtooth.consensus.pbft.commit_timeout"),
                         String::from("sawtooth.consensus.pbft.view_change_duration"),
                         String::from("sawtooth.consensus.pbft.forced_view_change_interval"),
+                        String::from("sawtooth.consensus.pbft.strict_quorum"),
                     ],
                 )
             },
@@ -121,7 +127,52 @@ impl PbftConfig {
 
         // Get the on-chain list of PBFT members or panic if it is not provided; the network cannot
         // function without this setting, since there is no way of knowing which nodes are members.
-        self.members = get_members_from_settings(&settings);
+        self.members = get_members_from_settings(&settings).unwrap_or_else(|_err| {
+            let mut done = false;
+            let mut this_block_id = block_id.clone();
+            let mut found_peers: Vec<PeerId> = Vec::new();
+            while !done {
+                let blocks = retry_until_ok(
+                    self.exponential_retry_base,
+                    self.exponential_retry_max,
+                    || service.get_blocks(vec![this_block_id.clone()]),
+                );
+                debug!("Fetching settings from prior block");
+                let previous_block_id = if let Some(current_block) = blocks.get(&this_block_id) {
+                    current_block.previous_id.clone()
+                } else {
+                    panic!("Cannot fetch the current block!");
+                };
+                let previous_settings: HashMap<String, String> = retry_until_ok(
+                    self.exponential_retry_base,
+                    self.exponential_retry_max,
+                    || {
+                        service.get_settings(
+                            previous_block_id.clone(),
+                            vec![String::from("sawtooth.consensus.pbft.members")],
+                        )
+                    },
+                );
+                match get_members_from_settings(&previous_settings) {
+                    Ok(result) => {
+                        done = true;
+                        found_peers = result;
+                    }
+                    Err(msg) => {
+                        debug!(
+                            "Valid membership not found yet, searching backward {:?}",
+                            msg
+                        );
+                        done = false;
+                        this_block_id = previous_block_id.clone();
+                    }
+                };
+            }
+            found_peers
+        });
+
+        // get the on chain setting setting for the strict_quorum
+        self.strict_quorum = get_strict_quorum_from_settings(&settings);
 
         // Get durations
         merge_millis_setting_if_set(
@@ -199,30 +250,51 @@ fn merge_millis_setting_if_set(
     )
 }
 
+/// Get the strict_quorum setting from settings as a bool
+pub fn get_strict_quorum_from_settings<S: std::hash::BuildHasher>(
+    settings: &HashMap<String, String, S>,
+) -> bool {
+    match settings.get("sawtooth.consensus.pbft.strict_quorum") {
+        Some(strict_quorum_value) => {
+            if strict_quorum_value.is_empty() {
+                false
+            } else {
+                strict_quorum_value
+                    .parse()
+                    .expect("'sawtooth.consensus.pbft.strict_quorum' must be 'true' or 'false'")
+            }
+        }
+        None => false,
+    }
+}
+
 /// Get the list of PBFT members as a Vec<PeerId> from settings
 ///
 /// # Panics
 /// + If the `sawtooth.consenus.pbft.members` setting is unset or invalid
 pub fn get_members_from_settings<S: std::hash::BuildHasher>(
     settings: &HashMap<String, String, S>,
-) -> Vec<PeerId> {
+) -> Result<Vec<PeerId>, &'static str> {
     let members_setting_value = settings
         .get("sawtooth.consensus.pbft.members")
         .expect("'sawtooth.consensus.pbft.members' is empty; this setting must exist to use PBFT");
 
-    let members: Vec<String> = serde_json::from_str(members_setting_value).unwrap_or_else(|err| {
-        panic!(
-            "Unable to parse value at 'sawtooth.consensus.pbft.members' due to error: {:?}",
-            err
-        )
-    });
+    debug!("Will parse value {:?}", members_setting_value);
+    let members: Vec<String> =
+        serde_json::from_str(members_setting_value).unwrap_or_else(|_err| Vec::new());
 
-    members
+    if members.is_empty() {
+        return Err(
+            "Unable to parse value at 'sawtooth.consensus.pbft.members' due to error parsing",
+        );
+    };
+
+    Ok(members
         .into_iter()
         .map(|s| {
             hex::decode(s).unwrap_or_else(|err| {
                 panic!("Unable to parse PeerId from string due to error: {:?}", err)
             })
         })
-        .collect()
+        .collect())
 }
