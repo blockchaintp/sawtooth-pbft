@@ -132,7 +132,7 @@ pub fn retry_until_ok<T, E, F: FnMut() -> Result<T, E>>(
 mod tests {
     use super::*;
 
-    const TOLERANCE_MILLIS: u64 = 10;
+    const TOLERANCE_MILLIS: u64 = 20;
 
     macro_rules! assert_tolerance {
         ($val1:expr, $val2:expr, $tol:expr) => {
