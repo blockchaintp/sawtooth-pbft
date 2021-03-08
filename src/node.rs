@@ -667,6 +667,11 @@ impl PbftNode {
 
         if self.msg_log.outstanding_validation_count() < 1024 {
             if let Some(unchecked_block) = self.msg_log.get_first_unvalidated_block() {
+                info!(
+                    "{}: Reqesting validation for {}",
+                    state,
+                    hex::encode(unchecked_block.block_id.clone())
+                );
                 self.msg_log
                     .add_validated_requested(unchecked_block.clone());
                 self.service
@@ -711,6 +716,11 @@ impl PbftNode {
 
         if self.msg_log.outstanding_validation_count() < 1024 {
             if let Some(unchecked_block) = self.msg_log.get_first_unvalidated_block() {
+                info!(
+                    "{}: Reqesting validation for {}",
+                    state,
+                    hex::encode(unchecked_block.block_id.clone())
+                );
                 self.msg_log
                     .add_validated_requested(unchecked_block.clone());
                 self.service
